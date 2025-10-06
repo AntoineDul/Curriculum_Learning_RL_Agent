@@ -3,7 +3,7 @@ import random
 import numpy as np
 # import gym
 
-from modules.environment.goal import Goal
+from source.modules.environment.goal import Goal
 
 class GridWorld:
     def __init__(self, n=5, max_steps=100, lbda=0.9, obstacle_density=0.2, debug=False):
@@ -11,21 +11,20 @@ class GridWorld:
         self.max_steps = max_steps
         self.lbda = lbda
         self.obstacle_density = obstacle_density  
-        self.goal = Goal(n= self.n, is_moving=True, move_frequency=5, debug=debug)
+        self.goal = Goal(n= self.n, is_moving=False, move_frequency=5, debug=debug)
         self.done = False
-        self.reset()
         self.debug = debug
- 
+
     def reset(self):
         """
         Reset environment:
             - Gives a random position to the agent and goal
             - Add obstacles in random places of the grid        
         """
-
         # Define agent position
         self.agent_pos = tuple(int(x) for x in np.random.randint(0, self.n, size=2, dtype=int))
         self.goal.reset()
+        self.done = False
 
         # Add random obstacles 
         self.obstacles = set()
@@ -37,19 +36,32 @@ class GridWorld:
         # Initialize the number of steps 
         self.steps = 0
 
-        print(f"agent : {self.agent_pos} \ngoal : {self.goal.position}\n obstacles: {self.obstacles}")
+        if self.debug:
+            print(f"agent : {self.agent_pos} \ngoal : {self.goal.position}\n obstacles: {self.obstacles}")
+        
+        return self._get_obs(), None
 
-    def _get_obs(self):  #TODO: change for diff of vectors (goal - agent pos)
+    def _get_obs(self):
         """
-        Gives the current state of the env
-
-        Returns: np.array(...)
+        Observation = [dot(goal-agent, up), dot(goal-agent, right),
+                    dot(goal-agent, down), dot(goal-agent, left),
+                    distance/n]
         """
         gx, gy = self.goal.position
         ax, ay = self.agent_pos
-        diff_vector = (gx - ax, gy - ay)
 
-        return [diff_vector, self.obstacles]
+        diff = np.array([gx - ax, gy - ay], dtype=np.float32)
+        norm = np.linalg.norm(diff)
+
+        if norm != 0:
+            diff_unit = diff / norm
+        else:
+            diff_unit = np.zeros(2, dtype=np.float32)
+
+        # Final obs
+        obs = np.concatenate([diff_unit, [norm / 3]]).astype(np.float32)
+    
+        return obs
 
     def step(self, agent_action):
         """
@@ -72,6 +84,8 @@ class GridWorld:
             # Debug
             if self.debug:
                 print("Environment chooses a random action")
+        
+        reward = 0
 
         # Check action legal and handles it
         legal, new_agent_position = self.is_legal(self.agent_pos, agent_action)
@@ -80,15 +94,10 @@ class GridWorld:
 
             # Update steps
             self.steps += 1
-            reward = 0
 
             # Check goal
             if self.agent_pos == self.goal.position:
                 reward = 1
-                self.done = True
-
-            # Check max steps
-            if self.steps >= self.max_steps:
                 self.done = True
 
             # Move goal if needed
@@ -110,7 +119,7 @@ class GridWorld:
                 print("skip turn")
             reward = 0
 
-        return self._get_obs(), reward
+        return self._get_obs(), reward, self.done, None, None
 
     def is_legal(self, initial_position, action, step_size=1):
         """
@@ -169,5 +178,6 @@ class GridWorld:
             grid[ox, oy] = "X"
 
         # Print grid
+        print()
         for row in grid:
             print(" ".join(row))
