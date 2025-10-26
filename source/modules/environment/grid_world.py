@@ -1,20 +1,33 @@
 import math
 import random
+
 import numpy as np
+from source.config import CONFIG
+from source.modules.environment.block import Block
+from source.modules.environment.goal import Goal
+
 # import gym
 
-from modules.environment.goal import Goal
 
 class GridWorld:
-    def __init__(self, n=5, max_steps=100, lbda=0.9, obstacle_density=0.2, debug=False):
-        self.n = n
-        self.max_steps = max_steps
-        self.lbda = lbda
-        self.obstacle_density = obstacle_density  
-        self.goal = Goal(n= self.n, is_moving=True, move_frequency=5, debug=debug)
+    def __init__(self):
+        self.mode = CONFIG["mode"]
+        self.debug = CONFIG["debug_mode_enabled"]
+        self.n = CONFIG["grid_size"]
+        self.max_steps = CONFIG["max_steps"]
+        self.lbda = CONFIG["lambda"]
+        self.obstacle_density = CONFIG["obstacle_density"]
+        self.goal = Goal(n=self.n, is_moving=CONFIG["goal_is_moving"], move_frequency=CONFIG["goal_move_frequency"], debug=CONFIG["debug_mode_enabled"])
         self.done = False
+
+        # Initialize block if in block mode
+        self.block = None
+        self.pushing = False
+        if self.mode == "block":
+            self.block = Block()
+        
+        # Set up environment
         self.reset()
-        self.debug = debug
  
     def reset(self):
         """
@@ -23,9 +36,13 @@ class GridWorld:
             - Add obstacles in random places of the grid        
         """
 
-        # Define agent position
+        # Reset agent, goal positions
         self.agent_pos = tuple(int(x) for x in np.random.randint(0, self.n, size=2, dtype=int))
         self.goal.reset()
+
+        #Reset block 
+        if self.mode == "block":
+            self.block.reset()
 
         # Add random obstacles 
         self.obstacles = set()
@@ -41,15 +58,27 @@ class GridWorld:
 
     def _get_obs(self):  #TODO: change for diff of vectors (goal - agent pos)
         """
-        Gives the current state of the env
+        Gives the current state of the environment
 
-        Returns: np.array(...)
+        Reach mode returns : difference vector from agent to goal and obstacles
+
+        Block mode returns : difference vector from agent to goal, agent to block and block to goal
+
+        Returns: List
         """
         gx, gy = self.goal.position
         ax, ay = self.agent_pos
-        diff_vector = (gx - ax, gy - ay)
+        agent_to_goal_vector = (gx - ax, gy - ay)
 
-        return [diff_vector, self.obstacles]
+        if self.mode == "block":
+            bx, by = self.block.position
+            agent_to_block_vector = (bx - ax, by - ay)
+            block_to_goal_vector = (gx - bx, gy - by)
+
+            return [agent_to_goal_vector, agent_to_block_vector, block_to_goal_vector]
+
+        else:
+            return [agent_to_goal_vector, self.obstacles]
 
     def step(self, agent_action):
         """
@@ -60,7 +89,7 @@ class GridWorld:
             agent_action (int) : action to execute (0 = up, 1 = right, 2 = down, 3 = left)
 
         Returns:
-            tuple[obs, reward]:
+            tuple[observations, reward]:
                 first element is the observation of the environment after the action,
                 the second is the reward earned by the agent from the action
         """
@@ -73,19 +102,25 @@ class GridWorld:
             if self.debug:
                 print("Environment chooses a random action")
 
-        # Check action legal and handles it
+        # Check if action is legal and handle it
+        self.pushing = False
         legal, new_agent_position = self.is_legal(self.agent_pos, agent_action)
+
         if legal:
+
+            # Update block
+            if self.mode == "block" and self.pushing:
+                dx, dy = (new_agent_position[0] - self.agent_pos[0], new_agent_position[1] - self.agent_pos[1])
+                bx, by = self.block.position
+                new_block_position = (bx + dx, by + dy)
+                self.block.set_position(new_block_position)
+            
+            # Update agent position
             self.agent_pos = new_agent_position
 
             # Update steps
             self.steps += 1
             reward = 0
-
-            # Check goal
-            if self.agent_pos == self.goal.position:
-                reward = 1
-                self.done = True
 
             # Check max steps
             if self.steps >= self.max_steps:
@@ -103,6 +138,24 @@ class GridWorld:
                 # Update goal position if legal else do not move goal (could change -> loop or change goal.step_size)
                 if legal:
                     self.goal.set_position(new_goal_position)
+
+            # Check if episode is over according to mode
+            # Reach mode
+            if self.mode == "reach":
+                if self.agent_pos == self.goal.position:
+                    reward = 1
+                    self.done = True
+
+            # Block mode
+            elif self.mode == "block":
+                if self.block.position == self.goal.position:
+                    reward = 1
+                    self.done = True
+                elif self.block.on_edge():
+                    print("BLOCK POS:",self.block.position)
+                    print(self.block.on_edge() == True)
+                    print("aaaadfd;f")
+                    self.block.reset()
 
         # Action illegal
         else:
@@ -137,6 +190,11 @@ class GridWorld:
         else:
             return (False, None)  # Invalid action
 
+        # Determine if agent is trying to push block
+        pushing = False
+        if new_position == self.block.position:
+            self.pushing = True
+
         # Boundary check
         if not (0 <= new_position[0] < self.n and 0 <= new_position[1] < self.n):
             # Debug
@@ -146,13 +204,21 @@ class GridWorld:
             return (False, None)
 
         # Obstacle check
-        if new_position in self.obstacles:
+        elif new_position in self.obstacles:
             if self.debug:
                 print(new_position)
                 print("Illegal move, obstacle!")
             return (False, None)
 
-        return (True, new_position)
+        # Block check 
+        elif self.mode == "block" and pushing and not self.is_legal(self.block.position, action, 1):
+            if self.debug:
+                print(new_position)
+                print("Cannot push block this direction!")
+            return (False, None) 
+        
+        else :
+            return (True, new_position)
 
     def render(self):
         """
@@ -161,8 +227,10 @@ class GridWorld:
         grid = np.full((self.n, self.n), ".")
         ax, ay = self.agent_pos
         gx, gy = self.goal.position
+        bx, by = self.block.position
         grid[ax, ay] = "A"  # Agent
         grid[gx, gy] = "G"  # Goal
+        grid[bx, by] = "B"  # Block
 
         for obstacle in self.obstacles:  # Obstacles
             ox, oy = obstacle

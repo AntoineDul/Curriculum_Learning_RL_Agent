@@ -1,8 +1,8 @@
-from modules.environment.grid_world import GridWorld
-from modules.agent.random_agent import RandomAgent
+from source.modules.environment.grid_world import GridWorld
+from source.modules.agent.random_agent import RandomAgent
 
 def main():
-    env = GridWorld(n=10, max_steps=100, lbda=0.99, obstacle_density=0.2, debug=True)
+    env = GridWorld()
     agent = RandomAgent()
    
     obs = env._get_obs()
