@@ -1,13 +1,11 @@
-import math
 import random
+import keyboard
 
 import numpy as np
 from source.config import CONFIG
 from source.modules.environment.block import Block
 from source.modules.environment.goal import Goal
-
-# import gym
-
+from source.modules.environment.random_reward_object import RandomRewardObject
 
 class GridWorld:
     def __init__(self):
@@ -16,7 +14,7 @@ class GridWorld:
         self.n = CONFIG["grid_size"]
         self.max_steps = CONFIG["max_steps"]
         self.lbda = CONFIG["lambda"]
-        self.obstacle_density = CONFIG["obstacle_density"]
+        self.nb_obstacles = CONFIG["nb_obstacles"]
         self.goal = Goal(n=self.n, is_moving=CONFIG["goal_is_moving"], move_frequency=CONFIG["goal_move_frequency"], debug=CONFIG["debug_mode_enabled"])
         self.done = False
 
@@ -25,7 +23,12 @@ class GridWorld:
         self.pushing = False
         if self.mode == "block":
             self.block = Block()
-        
+
+        # Initialize random reward cell if in random reward object mode
+        self.r_reward = None
+        if self.mode == "random_reward_object":
+            self.r_reward = RandomRewardObject()
+
         # Set up environment
         self.reset()
  
@@ -40,13 +43,17 @@ class GridWorld:
         self.agent_pos = tuple(int(x) for x in np.random.randint(0, self.n, size=2, dtype=int))
         self.goal.reset()
 
-        #Reset block 
+        # Reset block 
         if self.mode == "block":
             self.block.reset()
 
+        # Reset Random Reward Object
+        if self.mode == "random_reward_object":
+            self.r_reward.reset()
+
         # Add random obstacles 
         self.obstacles = set()
-        for _ in range(math.floor(self.obstacle_density * (self.n**2) )):
+        for _ in range(self.nb_obstacles):
             pos = tuple(int(x) for x in np.random.randint(0, self.n, size=2, dtype=int))
             if pos != self.agent_pos and pos != self.goal.position:
                 self.obstacles.add(pos) 
@@ -74,8 +81,15 @@ class GridWorld:
             bx, by = self.block.position
             agent_to_block_vector = (bx - ax, by - ay)
             block_to_goal_vector = (gx - bx, gy - by)
+            return [agent_to_goal_vector, agent_to_block_vector, block_to_goal_vector, self.obstacles]
 
-            return [agent_to_goal_vector, agent_to_block_vector, block_to_goal_vector]
+        elif self.mode == "random_reward_object":
+            if self.r_reward.over:
+                agent_to_random_reward_vector = None
+            else:
+                rx, ry = self.r_reward.position
+                agent_to_random_reward_vector = (rx - ax, ry - ay)
+            return [agent_to_goal_vector, agent_to_random_reward_vector, self.obstacles]
 
         else:
             return [agent_to_goal_vector, self.obstacles]
@@ -126,6 +140,7 @@ class GridWorld:
             if self.steps >= self.max_steps:
                 self.done = True
 
+
             # Move goal if needed
             if self.goal.is_moving and self.steps % self.goal.move_frequency == 0:
                 
@@ -139,23 +154,33 @@ class GridWorld:
                 if legal:
                     self.goal.set_position(new_goal_position)
 
-            # Check if episode is over according to mode
-            # Reach mode
-            if self.mode == "reach":
-                if self.agent_pos == self.goal.position:
-                    reward = 1
-                    self.done = True
+            # Check if agent is on random reward cell
+            if self.mode == "random_reward_object":
+                if self.agent_pos == self.r_reward.position:
+                    reward = self.r_reward.get_random_reward()
+                    if CONFIG["max_nb_random_rewards"] == -1 or self.r_reward.count < CONFIG["max_nb_random_rewards"]:
+                        self.r_reward.reset()
+                    else:
+                        self.r_reward.set_position(None, None)
 
+            # Check if episode is over according to mode
             # Block mode
-            elif self.mode == "block":
+            if self.mode == "block":
                 if self.block.position == self.goal.position:
                     reward = 1
                     self.done = True
                 elif self.block.on_edge():
-                    print("BLOCK POS:",self.block.position)
+                    print("Block position:",self.block.position)
                     print(self.block.on_edge() == True)
-                    print("aaaadfd;f")
                     self.block.reset()
+            
+            # Reach mode and random reward object mode
+            else:
+                gx, gy = self.goal.position
+                ax, ay = self.agent_pos
+                if (ax - gx == 0) and (ay - gy == 0):
+                    reward = 1
+                    self.done = True
 
         # Action illegal
         else:
@@ -165,7 +190,7 @@ class GridWorld:
 
         return self._get_obs(), reward
 
-    def is_legal(self, initial_position, action, step_size=1):
+    def is_legal(self, initial_position, action, step_size=1, recursive_check=True):
         """
         Determine if an action is legal and returns resulting position 
 
@@ -179,22 +204,23 @@ class GridWorld:
                 first element indicates if action is legal, second returns new position
         """
         new_position = None
-        if action == 0:  # Up
+        if action == 0:  # Left
             new_position = tuple([initial_position[0], initial_position[1] - step_size])
-        elif action == 1:  # Right
+        elif action == 1:  # Down
             new_position = tuple([initial_position[0] + step_size, initial_position[1]])
-        elif action == 2:  # Down
+        elif action == 2:  # Right
             new_position = tuple([initial_position[0], initial_position[1] + step_size])
-        elif action == 3:  # Left
+        elif action == 3:  # Up
             new_position = tuple([initial_position[0] - step_size, initial_position[1]])
         else:
             return (False, None)  # Invalid action
 
         # Determine if agent is trying to push block
-        pushing = False
-        if new_position == self.block.position:
-            self.pushing = True
+        if self.mode == "block":
+            if new_position == self.block.position:
+                self.pushing = True
 
+        print(f"PUSING?: {self.pushing}\nRecursive checks: {recursive_check}")
         # Boundary check
         if not (0 <= new_position[0] < self.n and 0 <= new_position[1] < self.n):
             # Debug
@@ -204,21 +230,23 @@ class GridWorld:
             return (False, None)
 
         # Obstacle check
-        elif new_position in self.obstacles:
+        if new_position in self.obstacles:
             if self.debug:
                 print(new_position)
                 print("Illegal move, obstacle!")
             return (False, None)
 
         # Block check 
-        elif self.mode == "block" and pushing and not self.is_legal(self.block.position, action, 1):
-            if self.debug:
-                print(new_position)
-                print("Cannot push block this direction!")
-            return (False, None) 
+        if self.mode == "block" and self.pushing and recursive_check:
+            print(f"--- checking if block ({self.block.position}) can do action {action} --- \nResult of function {self.is_legal(self.block.position, action, 1, False)}")
+            new_block_pos_legal, _ = self.is_legal(self.block.position, action, step_size, False)
+            if not new_block_pos_legal:
+                if self.debug:
+                    print(new_position)
+                    print("Cannot push block this direction!")
+                return (False, None) 
         
-        else :
-            return (True, new_position)
+        return (True, new_position)
 
     def render(self):
         """
@@ -227,10 +255,16 @@ class GridWorld:
         grid = np.full((self.n, self.n), ".")
         ax, ay = self.agent_pos
         gx, gy = self.goal.position
-        bx, by = self.block.position
         grid[ax, ay] = "A"  # Agent
         grid[gx, gy] = "G"  # Goal
-        grid[bx, by] = "B"  # Block
+
+        if self.mode == "block":
+            bx, by = self.block.position
+            grid[bx, by] = "B"  # Block
+
+        if self.mode == "random_reward_object":
+            rx, ry = self.r_reward.position
+            grid[rx, ry] = "R"  # Random Reward Object 
 
         for obstacle in self.obstacles:  # Obstacles
             ox, oy = obstacle
@@ -239,3 +273,22 @@ class GridWorld:
         # Print grid
         for row in grid:
             print(" ".join(row))
+        
+        if self.debug:
+            print(f"Agent position: {self.agent_pos}\nGoal Position: {self.goal.position}\nObstacles: {self.obstacles}\nBlock position: {self.block.position}")
+
+    # Debug helper function to get directions
+    def get_user_action():
+        print("Choose a direction: (w=up, s=down, a=left, d=right)")
+        while True:
+            key = input("> ").strip().lower()
+            if key == "a":
+                return 0  # LEFT
+            elif key == "d":
+                return 2  # RIGHT
+            elif key == "w":
+                return 3  # UP
+            elif key == "s":
+                return 1  # DOWN
+            else:
+                print("Invalid input. Use w/a/s/d.")

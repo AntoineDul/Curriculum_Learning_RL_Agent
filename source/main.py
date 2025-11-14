@@ -7,14 +7,18 @@ def main():
    
     obs = env._get_obs()
     iterations = 0
+    env.render()
 
     while not env.done:
-        action = agent.get_action()
+        if env.debug == True:
+            action = GridWorld.get_user_action()
+        else:
+            action = agent.get_action()
+        
         obs, reward = env.step(action)
         env.render()
         iterations += 1
         print(f"Obs : {obs}, Reward : {reward}, Action: {action}, Steps: {env.steps}, Total Iter: {iterations}")
-
 
 if __name__ == "__main__":
     main()

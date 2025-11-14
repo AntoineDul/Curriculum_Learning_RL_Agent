@@ -9,7 +9,7 @@ class EnvironmentElement(ABC):
         self.move_frequency = move_frequency
         self.step_size = step_size
         self.debug = debug
-        self.reset()
+        #self.reset()
 
     
     def set_position(self, new_position):
