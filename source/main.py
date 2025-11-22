@@ -19,6 +19,23 @@ def main():
         env.render()
         iterations += 1
         print(f"Obs : {obs}, Reward : {reward}, Action: {action}, Steps: {env.steps}, Total Iter: {iterations}")
+    
+    env.set_n(15)
+    env.set_mode("random_reward_object")
+    env.reset()
+    env.render()
+    iterations = 0
+
+    while not env.done:
+        if env.debug == True:
+            action = GridWorld.get_user_action()
+        else:
+            action = agent.get_action()
+        
+        obs, reward = env.step(action)
+        env.render()
+        iterations += 1
+        print(f"Obs : {obs}, Reward : {reward}, Action: {action}, Steps: {env.steps}, Total Iter: {iterations}")
 
 if __name__ == "__main__":
     main()

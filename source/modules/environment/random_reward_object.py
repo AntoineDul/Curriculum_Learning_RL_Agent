@@ -3,8 +3,8 @@ import numpy as np
 from source.config import CONFIG
 
 class RandomRewardObject(EnvironmentElement) : 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, n=5, is_moving=False, move_frequency=5, step_size=1, debug=False):
+        super().__init__(n, is_moving, move_frequency, step_size, debug)
         self.count = 0
         self.over = False
         self.reward_range = CONFIG["reward_range"]
@@ -17,7 +17,8 @@ class RandomRewardObject(EnvironmentElement) :
         r = np.random.normal(self.rd_mean, self.rd_std)
 
         # Ensure we stay in correct range
-        r = max(low, min(high, r))
+        return max(low, min(high, r))
+
 
     def set_random_reward_range(self, low, high):
         self.reward_range = [low, high]
@@ -26,7 +27,7 @@ class RandomRewardObject(EnvironmentElement) :
         self.rd_std = new_std
     
     def set_rd_mean(self, new_mean):
-        self.rd_std = new_mean
+        self.rd_mean = new_mean
 
     def reset(self):
         if not self.over:

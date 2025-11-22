@@ -1,7 +1,6 @@
 import random
-import keyboard
-
 import numpy as np
+
 from source.config import CONFIG
 from source.modules.environment.block import Block
 from source.modules.environment.goal import Goal
@@ -15,19 +14,20 @@ class GridWorld:
         self.max_steps = CONFIG["max_steps"]
         self.lbda = CONFIG["lambda"]
         self.nb_obstacles = CONFIG["nb_obstacles"]
-        self.goal = Goal(n=self.n, is_moving=CONFIG["goal_is_moving"], move_frequency=CONFIG["goal_move_frequency"], debug=CONFIG["debug_mode_enabled"])
+        self.goal = Goal(n=self.n, is_moving=CONFIG["goal_is_moving"], move_frequency=CONFIG["goal_move_frequency"], debug=self.debug)
         self.done = False
 
-        # Initialize block if in block mode
         self.block = None
         self.pushing = False
-        if self.mode == "block":
-            self.block = Block()
 
-        # Initialize random reward cell if in random reward object mode
         self.r_reward = None
-        if self.mode == "random_reward_object":
-            self.r_reward = RandomRewardObject()
+        self.r_reward_is_moving = CONFIG["random_reward_is_moving"]
+        self.r_reward_move_frequency = CONFIG["random_reward_move_frequency"]
+        self.r_reward_step_size = CONFIG["random_reward_step_size"]
+
+        self.offset_reward_enabled = CONFIG["offset_reward_enabled"]
+        self.offset_value = CONFIG["offset_value"]
+        self.offset_reward = CONFIG["offset_reward"]
 
         # Set up environment
         self.reset()
@@ -39,24 +39,53 @@ class GridWorld:
             - Add obstacles in random places of the grid        
         """
 
+        # Reset done flag
+        self.done = False
+
         # Reset agent, goal positions
         self.agent_pos = tuple(int(x) for x in np.random.randint(0, self.n, size=2, dtype=int))
+        
+        # Make sure goal and agent do not start at same position
         self.goal.reset()
+        while self.goal.position == self.agent_pos:
+            self.goal.reset()
 
         # Reset block 
         if self.mode == "block":
+            self.block = Block()
+            self.r_reward = None
             self.block.reset()
+            if self.block.position == self.agent_pos or self.block.position == self.goal.position:
+                self.block.reset()
 
         # Reset Random Reward Object
         if self.mode == "random_reward_object":
+            self.r_reward = RandomRewardObject(
+                n=self.n, 
+                is_moving=self.r_reward_is_moving, 
+                move_frequency=self.r_reward_move_frequency,
+                step_size=self.r_reward_step_size, 
+                debug=self.debug
+                )
             self.r_reward.reset()
+            if self.r_reward.position == self.agent_pos or self.block.position == self.goal.position or self.r_reward.position in self.obstacles:
+                self.r_reward.reset()
+
+            self.block = None
 
         # Add random obstacles 
         self.obstacles = set()
         for _ in range(self.nb_obstacles):
             pos = tuple(int(x) for x in np.random.randint(0, self.n, size=2, dtype=int))
             if pos != self.agent_pos and pos != self.goal.position:
-                self.obstacles.add(pos) 
+                if self.mode == "block":
+                    if pos != self.block.position:
+                        self.obstacles.add(pos)
+                elif self.mode == "random_reward_object":
+                    if pos != self.r_reward.position:
+                        self.obstacles.add(pos)
+                else:
+                    self.obstacles.add(pos) 
 
         # Initialize the number of steps 
         self.steps = 0
@@ -163,6 +192,13 @@ class GridWorld:
                     else:
                         self.r_reward.set_position(None, None)
 
+            # Check if eligible for offset reward
+            if self.mode != "block":
+                if self.offset_reward_enabled and self.is_offset_eligible(self.block.position, self.goal.position):
+                    reward += self.offset_reward
+            elif self.offset_reward_enabled and self.is_offset_eligible(self.agent_pos, self.goal.position):
+                reward += self.offset_reward
+
             # Check if episode is over according to mode
             # Block mode
             if self.mode == "block":
@@ -188,7 +224,16 @@ class GridWorld:
                 print("skip turn")
             reward = 0
 
+        # Print current settings
+        self.print_settings()
+
         return self._get_obs(), reward
+
+    def is_offset_eligible(self, agent_pos, goal_pos):
+        if (agent_pos[0] + self.offset_value == goal_pos[0] or agent_pos[0] - self.offset_value == goal_pos[0] or 
+            agent_pos[1] + self.offset_value == goal_pos[1] or agent_pos[1] - self.offset_value == goal_pos[1]):
+            return True
+        return False
 
     def is_legal(self, initial_position, action, step_size=1, recursive_check=True):
         """
@@ -275,7 +320,12 @@ class GridWorld:
             print(" ".join(row))
         
         if self.debug:
-            print(f"Agent position: {self.agent_pos}\nGoal Position: {self.goal.position}\nObstacles: {self.obstacles}\nBlock position: {self.block.position}")
+            print(f"Agent position: {self.agent_pos}\nGoal Position: {self.goal.position}\nObstacles: {self.obstacles}\n")
+            if self.mode == "block":
+                print(f"Block Position: {self.block.position}\n")
+            if self.mode == "random_reward_object":
+                print(f"Random Reward Object Position: {self.r_reward.position}\n")
+            print(f"Paremeters: n={self.n}\nmax_steps={self.max_steps}\nlambda={self.lbda}\nnb_obstacles={self.nb_obstacles}")
 
     # Debug helper function to get directions
     def get_user_action():
@@ -292,3 +342,65 @@ class GridWorld:
                 return 1  # DOWN
             else:
                 print("Invalid input. Use w/a/s/d.")
+
+    def print_settings(self):
+        print("Current Environment Settings:")
+        print(f"Mode: {self.mode}")
+        print(f"Grid Size (n): {self.n}")
+        print(f"Max Steps: {self.max_steps}")
+        print(f"Lambda: {self.lbda}")
+        print(f"Number of Obstacles: {self.nb_obstacles}")
+        print(f"Goal is Moving: {self.goal.is_moving}")
+        print(f"Goal Move Frequency: {self.goal.move_frequency}")
+        print(f"Random Reward Object is Moving: {self.r_reward_is_moving}")
+        print(f"Random Reward Object Move Frequency: {self.r_reward_move_frequency}")
+        print(f"Offset Reward Enabled: {self.offset_reward_enabled}")
+        print(f"Offset Value: {self.offset_value}")
+        print(f"Offset Reward: {self.offset_reward}")
+
+    # ############## Setters ##############
+    # General settings
+    def set_n(self, new_n):
+        self.n = new_n
+    
+    def set_lbda(self, new_lbda):
+        self.lbda = new_lbda
+    
+    def set_max_steps(self, new_max_steps):
+        self.max_steps = new_max_steps
+    
+    def set_nb_obstacles(self, new_nb_obstacles):
+        self.nb_obstacles = new_nb_obstacles
+
+    def set_mode(self, new_mode):
+        self.mode = new_mode
+
+    # Goal settings
+    def toggle_goal_movement(self):
+        self.goal.is_moving = not self.goal.is_moving
+
+    def set_goal_move_frequency(self, new_frequency):
+        self.goal.move_frequency = new_frequency
+
+    def set_goal_step_size(self, new_step_size):
+        self.goal.step_size = new_step_size
+
+    # Random Reward Object settings
+    def toggle_r_reward_movement(self):
+        self.r_reward_is_moving = not self.r_reward_is_moving
+    
+    def set_r_reward_move_frequency(self, new_frequency):
+        self.r_reward_move_frequency = new_frequency
+
+    def set_r_reward_step_size(self, new_step_size):
+        self.r_reward_step_size = new_step_size
+
+    # Offset reward settings
+    def set_offset_reward_enabled(self, enabled: bool):
+        self.offset_reward_enabled = enabled
+
+    def set_offset_value(self, new_offset_value: float):
+        self.offset_value = new_offset_value 
+
+    def set_offset_reward(self, new_offset_reward: float):
+        self.offset_reward = new_offset_reward
