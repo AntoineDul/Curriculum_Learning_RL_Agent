@@ -9,13 +9,13 @@ def main():
     run_environment(env, agent)
 
     # Change parameters and run again
-    change_parameters(env, new_mode="reach", new_n=15, new_max_steps=150, new_lambda=1, enable_offset_reward=True, new_offset_value=2, new_offset_reward=1.0)
+    change_parameters(env, new_mode="reach", new_n=8, new_max_steps=150, new_lambda=1, enable_offset_reward=True, new_offset_value=2, new_offset_reward=1.0)
     
     # Second run
     run_environment(env, agent)
 
     # Change parameters and run again
-    change_parameters(env, new_mode="random_reward_object", new_n=20, new_max_steps=200, new_lambda=1, enable_offset_reward=False)
+    change_parameters(env, new_mode="random_reward_object", new_n=5, new_max_steps=200, new_lambda=1, enable_offset_reward=False)
 
     # Third run
     run_environment(env, agent)
@@ -44,6 +44,7 @@ def change_parameters(env=None, new_mode=None, new_n=None, new_max_steps=None, n
             env.goal.move_frequency = new_goal_move_frequency
         if new_goal_step_size is not None:
             env.goal.step_size = new_goal_step_size
+            
         env.reset()
 
 def run_environment(env, agent):

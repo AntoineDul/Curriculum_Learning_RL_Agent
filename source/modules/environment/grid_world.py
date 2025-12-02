@@ -46,6 +46,7 @@ class GridWorld:
         self.agent_pos = tuple(int(x) for x in np.random.randint(0, self.n, size=2, dtype=int))
         
         # Make sure goal and agent do not start at same position
+        self.goal.n = self.n
         self.goal.reset()
         while self.goal.position == self.agent_pos:
             self.goal.reset()
@@ -92,7 +93,7 @@ class GridWorld:
 
         print(f"agent : {self.agent_pos} \ngoal : {self.goal.position}\n obstacles: {self.obstacles}")
 
-    def _get_obs(self):  #TODO: change for diff of vectors (goal - agent pos)
+    def _get_obs(self): 
         """
         Gives the current state of the environment
 
@@ -235,8 +236,7 @@ class GridWorld:
         return self._get_obs(), reward
 
     def is_offset_eligible(self, agent_pos, goal_pos):
-        if (agent_pos[0] + self.offset_value == goal_pos[0] or agent_pos[0] - self.offset_value == goal_pos[0] or 
-            agent_pos[1] + self.offset_value == goal_pos[1] or agent_pos[1] - self.offset_value == goal_pos[1]):
+        if abs(agent_pos[0] - goal_pos[0]) <= self.offset_value and abs(agent_pos[1] - goal_pos[1]) <= self.offset_value:
             return True
         return False
 
