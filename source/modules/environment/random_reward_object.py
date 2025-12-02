@@ -6,6 +6,7 @@ class RandomRewardObject(EnvironmentElement) :
     def __init__(self, n=5, is_moving=False, move_frequency=5, step_size=1, debug=False):
         super().__init__(n, is_moving, move_frequency, step_size, debug)
         self.count = 0
+        self.max_nb_random_rewards = CONFIG["max_nb_random_rewards"]
         self.over = False
         self.reward_range = CONFIG["reward_range"]
         low, high = self.reward_range
@@ -19,7 +20,12 @@ class RandomRewardObject(EnvironmentElement) :
         # Ensure we stay in correct range
         return max(low, min(high, r))
 
+    def reset(self):
+        if not self.over:
+            super().reset()
 
+    
+    # --------- Setters ---------
     def set_random_reward_range(self, low, high):
         self.reward_range = [low, high]
 
@@ -29,6 +35,9 @@ class RandomRewardObject(EnvironmentElement) :
     def set_rd_mean(self, new_mean):
         self.rd_mean = new_mean
 
-    def reset(self):
-        if not self.over:
-            super().reset()
+    def set_max_nb_random_rewards(self, new_max):
+        self.max_nb_random_rewards = new_max
+
+    def set_r_reward_moving(self, is_moving):
+        self.is_moving = is_moving
+    

@@ -14,7 +14,7 @@ class GridWorld:
         self.max_steps = CONFIG["max_steps"]
         self.lbda = CONFIG["lambda"]
         self.nb_obstacles = CONFIG["nb_obstacles"]
-        self.goal = Goal(n=self.n, is_moving=CONFIG["goal_is_moving"], move_frequency=CONFIG["goal_move_frequency"], debug=self.debug)
+        self.goal = Goal(n=self.n, is_moving=CONFIG["goal_is_moving"], move_frequency=CONFIG["goal_move_frequency"], step_size=CONFIG["goal_step_size"], debug=self.debug)
         self.done = False
 
         self.block = None
@@ -52,7 +52,7 @@ class GridWorld:
 
         # Reset block 
         if self.mode == "block":
-            self.block = Block()
+            self.block = Block(self.n)
             self.r_reward = None
             self.block.reset()
             if self.block.position == self.agent_pos or self.block.position == self.goal.position:
@@ -184,16 +184,21 @@ class GridWorld:
                     self.goal.set_position(new_goal_position)
 
             # Check if agent is on random reward cell
-            if self.mode == "random_reward_object":
+            if self.mode == "random_reward_object" and not self.r_reward.over:
                 if self.agent_pos == self.r_reward.position:
                     reward = self.r_reward.get_random_reward()
-                    if CONFIG["max_nb_random_rewards"] == -1 or self.r_reward.count < CONFIG["max_nb_random_rewards"]:
-                        self.r_reward.reset()
+                    if self.r_reward.max_nb_random_rewards == -1 or self.r_reward.count < self.r_reward.max_nb_random_rewards - 1:
+                        self.r_reward.count += 1
+                        while self.r_reward.position == self.agent_pos or self.r_reward.position == self.goal.position or self.r_reward.position in self.obstacles:
+                            self.r_reward.reset()
                     else:
-                        self.r_reward.set_position(None, None)
+                        if self.debug:
+                            print("\nRandom Reward Object is now over.\n")
+                        self.r_reward.over = True
+                        # self.r_reward.set_position((None, None))
 
             # Check if eligible for offset reward
-            if self.mode != "block":
+            if self.mode == "block":
                 if self.offset_reward_enabled and self.is_offset_eligible(self.block.position, self.goal.position):
                     reward += self.offset_reward
             elif self.offset_reward_enabled and self.is_offset_eligible(self.agent_pos, self.goal.position):
@@ -207,8 +212,8 @@ class GridWorld:
                     self.done = True
                 elif self.block.on_edge():
                     print("Block position:",self.block.position)
-                    print(self.block.on_edge() == True)
-                    self.block.reset()
+                    while self.block.on_edge() or self.block.position == self.agent_pos or self.block.position == self.goal.position:
+                        self.block.reset()
             
             # Reach mode and random reward object mode
             else:
@@ -307,7 +312,7 @@ class GridWorld:
             bx, by = self.block.position
             grid[bx, by] = "B"  # Block
 
-        if self.mode == "random_reward_object":
+        if self.mode == "random_reward_object" and not self.r_reward.over:
             rx, ry = self.r_reward.position
             grid[rx, ry] = "R"  # Random Reward Object 
 
